@@ -2,109 +2,131 @@ import { useEffect, useState } from 'react';
 import {
   View,
   Text,
+  FlatList,
+  Pressable,
   StyleSheet,
   ActivityIndicator,
-  ScrollView,
-  Pressable,
+  RefreshControl,
 } from 'react-native';
 
 import { api } from '../api/client';
 
-export default function ProfileDetailScreen({ route }) {
-  const id = route?.params?.id;
-
-  if (!id) {
-    return (
-      <View style={styles.centerContainer}>
-        <Text style={styles.errorText}>
-          Invalid profile data
-        </Text>
-      </View>
-    );
-  }
-
-  const [profile, setProfile] = useState(null);
-  const [loading, setLoading] = useState(true);
+export default function ProfilesListScreen({ navigation }) {
+  const [profiles, setProfiles] = useState([]);
+  const [page, setPage] = useState(1);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const fetchProfile = async () => {
+  const [hasMore, setHasMore] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const fetchProfiles = async () => {
+    if (loading || !hasMore) return;
+
     setLoading(true);
     setError(null);
 
     try {
-      const res = await api.get(`/profiles/${id}`);
-      setProfile(res.data); 
+      const res = await api.get(`/profiles?page=${page}&limit=10`);
+
+      if (!Array.isArray(res.data) || res.data.length === 0) {
+        setHasMore(false);
+      } else {
+        setProfiles((prev) => [...prev, ...res.data]);
+        setPage((prev) => prev + 1);
+      }
     } catch (err) {
-      console.error('DETAIL API ERROR:', err);
-      setError('Failed to load profile details');
+      setError(err.message || 'Failed to load profiles.');
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchProfile();
-  }, [id]);
+    fetchProfiles();
+  }, []);
 
-  if (loading) {
+  // 🔄 Pull to refresh
+  const onRefresh = async () => {
+    setRefreshing(true);
+    setProfiles([]);
+    setPage(1);
+    setHasMore(true);
+    await fetchProfiles();
+    setRefreshing(false);
+  };
+
+  // 📭 Empty state
+  const renderEmpty = () => {
+    if (loading) return null;
+    return (
+      <View style={styles.emptyContainer}>
+        <Text style={styles.emptyText}>No profiles found</Text>
+      </View>
+    );
+  };
+
+  // ⏳ Initial loading
+  if (loading && profiles.length === 0) {
     return (
       <View style={styles.centerContainer}>
-        <ActivityIndicator size="large" />
-        <Text style={styles.loadingText}>Loading profile...</Text>
+        <ActivityIndicator size="large" color="#007AFF" />
+        <Text style={styles.loadingText}>Loading profiles...</Text>
       </View>
     );
   }
 
-  if (error) {
+  // ❌ Error state
+  if (error && profiles.length === 0) {
     return (
       <View style={styles.centerContainer}>
         <Text style={styles.errorText}>{error}</Text>
-        <Pressable style={styles.retryButton} onPress={fetchProfile}>
+        <Pressable style={styles.retryButton} onPress={fetchProfiles}>
           <Text style={styles.retryText}>Retry</Text>
         </Pressable>
       </View>
     );
   }
 
-  if (!profile) {
+  const renderItem = ({ item }) => (
+    <Pressable
+      style={styles.card}
+      onPress={() =>
+        navigation.navigate('ProfileDetail', { id: item.id })
+      }
+    >
+      <Text style={styles.name}>{item.name}</Text>
+      <Text style={styles.email}>{item.email}</Text>
+    </Pressable>
+  );
+
+  const renderFooter = () => {
+    if (!loading) return null;
     return (
-      <View style={styles.centerContainer}>
-        <Text style={styles.errorText}>Profile not found</Text>
+      <View style={styles.footer}>
+        <ActivityIndicator size="large" color="#007AFF" />
       </View>
     );
-  }
+  };
 
   return (
-    <ScrollView style={styles.container}>
-      <View style={styles.card}>
-        <View style={styles.header}>
-          <Text style={styles.name}>{profile.name}</Text>
-        </View>
-
-        <View style={styles.section}>
-          <Text style={styles.label}>Email</Text>
-          <Text style={styles.value}>{profile.email}</Text>
-        </View>
-
-        <View style={styles.section}>
-          <Text style={styles.label}>Age</Text>
-          <Text style={styles.value}>{profile.age}</Text>
-        </View>
-
-        {profile.phone && (
-          <View style={styles.section}>
-            <Text style={styles.label}>Phone</Text>
-            <Text style={styles.value}>{profile.phone}</Text>
-          </View>
-        )}
-
-        {profile.bio && (
-          <View style={styles.section}>
-            <Text style={styles.label}>Bio</Text>
-            <Text style={styles.bioText}>{profile.bio}</Text>
-          </View>
-        )}
-      </View>
-    </ScrollView>
+    <View style={styles.container}>
+      <FlatList
+        data={profiles}
+        keyExtractor={(item) => item.id.toString()}
+        renderItem={renderItem}
+        onEndReached={fetchProfiles}
+        onEndReachedThreshold={0.5}
+        ListFooterComponent={renderFooter}
+        ListEmptyComponent={renderEmpty}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+          />
+        }
+        contentContainerStyle={styles.listContent}
+      />
+    </View>
   );
 }
 
@@ -113,46 +135,34 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#f5f5f5',
   },
+  listContent: {
+    padding: 16,
+  },
+  card: {
+    backgroundColor: 'white',
+    padding: 16,
+    marginBottom: 12,
+    borderRadius: 8,
+    elevation: 3,
+  },
+  name: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 4,
+  },
+  email: {
+    fontSize: 14,
+    color: '#666',
+  },
+  footer: {
+    paddingVertical: 20,
+    alignItems: 'center',
+  },
   centerContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     padding: 20,
-  },
-  card: {
-    backgroundColor: 'white',
-    margin: 16,
-    borderRadius: 12,
-    padding: 20,
-    elevation: 4,
-  },
-  header: {
-    borderBottomWidth: 1,
-    borderBottomColor: '#e0e0e0',
-    paddingBottom: 16,
-    marginBottom: 16,
-  },
-  name: {
-    fontSize: 28,
-    fontWeight: 'bold',
-  },
-  section: {
-    marginBottom: 16,
-  },
-  label: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#666',
-    marginBottom: 4,
-  },
-  value: {
-    fontSize: 16,
-    color: '#333',
-  },
-  bioText: {
-    fontSize: 16,
-    color: '#333',
-    lineHeight: 24,
   },
   loadingText: {
     marginTop: 12,
@@ -161,7 +171,7 @@ const styles = StyleSheet.create({
   },
   errorText: {
     fontSize: 16,
-    color: 'red',
+    color: '#d32f2f',
     textAlign: 'center',
     marginBottom: 16,
   },
@@ -176,7 +186,16 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
   },
+  emptyContainer: {
+    marginTop: 40,
+    alignItems: 'center',
+  },
+  emptyText: {
+    fontSize: 16,
+    color: '#666',
+  },
 });
+
 
 
 
